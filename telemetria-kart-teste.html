@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Telemetria Kart — Teste</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --panel: #161616;
+    --border: #2a2a2a;
+    --text: #e8e8e6;
+    --muted: #8a8a86;
+    --red: #E24B4A;
+    --red-dim: #3a1f1f;
+    --amber: #EF9F27;
+    --amber-dim: #3a2e10;
+    --green: #639922;
+    --green-dim: #1f2e10;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    height: 100%; overflow: hidden;
+    user-select: none;
+  }
+  #app {
+    display: flex; flex-direction: column;
+    height: 100dvh; padding: 16px;
+    gap: 16px;
+  }
+  .topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; color: var(--muted);
+  }
+  .battery { display: flex; align-items: center; gap: 6px; }
+  .battery-icon {
+    width: 22px; height: 12px; border: 1.5px solid var(--muted);
+    border-radius: 2px; position: relative; padding: 1.5px;
+  }
+  .battery-icon::after {
+    content: ''; position: absolute; right: -4px; top: 3px;
+    width: 2px; height: 6px; background: var(--muted); border-radius: 0 1px 1px 0;
+  }
+  .battery-fill { height: 100%; background: var(--green); border-radius: 1px; }
+
+  .status {
+    text-align: center; font-size: 14px; color: var(--muted);
+    min-height: 20px;
+  }
+  .status.recording { color: var(--red); }
+  .status.locked { color: var(--green); }
+
+  .leds {
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px; padding: 20px 0;
+  }
+  .led {
+    width: 26px; height: 44px; border-radius: 5px;
+    background: var(--panel); border: 1px solid var(--border);
+    transition: background 60ms linear, box-shadow 60ms linear;
+  }
+  .led.on-red { background: var(--red); box-shadow: 0 0 14px rgba(226,75,74,0.7); }
+  .led.on-amber { background: var(--amber); box-shadow: 0 0 14px rgba(239,159,39,0.7); }
+  .led.on-green { background: var(--green); box-shadow: 0 0 14px rgba(99,153,34,0.7); }
+  .led.dim-red { background: var(--red-dim); }
+  .led.dim-amber { background: var(--amber-dim); }
+  .led.dim-green { background: var(--green-dim); }
+
+  .delta-readout {
+    text-align: center; font-size: 40px; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .delta-readout .unit { font-size: 18px; color: var(--muted); margin-left: 4px; }
+  .delta-readout.pos { color: var(--red); }
+  .delta-readout.neg { color: var(--green); }
+  .delta-readout.zero { color: var(--amber); }
+
+  .metrics {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .metric {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .metric-value { font-size: 22px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+  .spacer { flex: 1; min-height: 0; }
+
+  .log {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+    font-size: 11px; color: var(--muted);
+    max-height: 70px; overflow-y: auto;
+    font-family: ui-monospace, monospace;
+    line-height: 1.5;
+  }
+
+  .controls {
+    display: flex; gap: 10px;
+  }
+  button {
+    flex: 1; padding: 16px; font-size: 16px; font-weight: 500;
+    border-radius: 10px; border: none; cursor: pointer;
+    font-family: inherit;
+  }
+  #btnStart { background: var(--green); color: #0a1a05; }
+  #btnStart:disabled { background: var(--panel); color: var(--muted); border: 1px solid var(--border); }
+  #btnStop { background: var(--red); color: #2a0a0a; }
+  #btnStop:disabled { background: var(--panel); color: var(--muted); border: 1px solid var(--border); }
+  #btnReset { background: var(--panel); color: var(--text); border: 1px solid var(--border); flex: 0 0 auto; width: 56px; }
+
+  .permission-gate {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px; text-align: center; gap: 20px; z-index: 10;
+  }
+  .permission-gate h1 { font-size: 20px; font-weight: 500; margin: 0; }
+  .permission-gate p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; max-width: 320px; }
+  .permission-gate button { background: var(--amber); color: #2a1a05; padding: 16px 32px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="permission-gate" id="gate">
+  <h1>Telemetria kart — teste</h1>
+  <p id="gateText">Este app lê o giroscópio do celular para detectar voltas e calcular o delta ao vivo. Precisa de permissão para acessar os sensores de movimento.</p>
+  <button id="btnPermission">Ativar sensores</button>
+</div>
+
+<div id="app" class="hidden">
+  <div class="topbar">
+    <span id="sampleRate">— Hz</span>
+    <div class="battery">
+      <span id="batteryPct">—%</span>
+      <div class="battery-icon"><div class="battery-fill" id="batteryFill" style="width:100%"></div></div>
+    </div>
+  </div>
+
+  <div class="status" id="statusText">Parado</div>
+
+  <div class="leds" id="ledRow"></div>
+
+  <div class="delta-readout zero" id="deltaReadout">--<span class="unit">s</span></div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-label">Volta atual</div>
+      <div class="metric-value" id="lapCount">0</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Duração ref.</div>
+      <div class="metric-value" id="refDuration">--</div>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="log" id="logBox"></div>
+
+  <div class="controls">
+    <button id="btnStart">Iniciar</button>
+    <button id="btnStop" disabled>Parar</button>
+    <button id="btnReset" title="Zerar referência">↺</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- Config ----------
+  const SAMPLE_INTERVAL_MS = 20; // ~50Hz alvo (limitado pelo navegador, geralmente ~60Hz no Chrome Android)
+  const LED_STEP = 0.2;          // cada LED = 0.2s
+  const LED_MAX = 1.0;           // satura em 1s (5 LEDs por lado)
+  const MIN_LAP_SECONDS = 8;     // ignora períodos candidatos menores que isso (evita ruído de passo)
+  const MAX_LAP_SECONDS = 180;   // ignora períodos maiores que isso
+  const AUTOCORR_MIN_SAMPLES = 300; // amostras mínimas antes de tentar achar período
+
+  // ---------- State ----------
+  let recording = false;
+  let referenceLocked = false;
+  let buffer = [];           // {t, gz} — t em segundos desde o início da gravação
+  let referenceSeries = null; // {t[], gz[]} normalizado, duração = refDuration
+  let refDurationSec = null;
+  let lapStartTime = 0;      // instante (em t da gravação) em que a volta atual começou
+  let lapCount = 0;
+  let lastSampleTime = 0;
+  let sampleTimestamps = [];
+  let currentDelta = 0;
+
+  // ---------- DOM ----------
+  const gate = document.getElementById('gate');
+  const gateText = document.getElementById('gateText');
+  const btnPermission = document.getElementById('btnPermission');
+  const app = document.getElementById('app');
+  const btnStart = document.getElementById('btnStart');
+  const btnStop = document.getElementById('btnStop');
+  const btnReset = document.getElementById('btnReset');
+  const statusText = document.getElementById('statusText');
+  const deltaReadout = document.getElementById('deltaReadout');
+  const lapCountEl = document.getElementById('lapCount');
+  const refDurationEl = document.getElementById('refDuration');
+  const sampleRateEl = document.getElementById('sampleRate');
+  const batteryPctEl = document.getElementById('batteryPct');
+  const batteryFillEl = document.getElementById('batteryFill');
+  const logBox = document.getElementById('logBox');
+  const ledRow = document.getElementById('ledRow');
+
+  // ---------- Build LED row: 5 red | 1 amber | 5 green ----------
+  const LED_COUNT_SIDE = 5;
+  const leds = []; // index 0..4 = red (far..near), 5 = amber, 6..10 = green (near..far)
+  for (let i = 0; i < LED_COUNT_SIDE; i++) {
+    const el = document.createElement('div');
+    el.className = 'led dim-red';
+    ledRow.appendChild(el);
+    leds.push({ el, color: 'red' });
+  }
+  {
+    const el = document.createElement('div');
+    el.className = 'led dim-amber';
+    ledRow.appendChild(el);
+    leds.push({ el, color: 'amber' });
+  }
+  for (let i = 0; i < LED_COUNT_SIDE; i++) {
+    const el = document.createElement('div');
+    el.className = 'led dim-green';
+    ledRow.appendChild(el);
+    leds.push({ el, color: 'green' });
+  }
+
+  function log(msg) {
+    const line = document.createElement('div');
+    const time = new Date().toLocaleTimeString('pt-BR', { hour12: false });
+    line.textContent = `${time}  ${msg}`;
+    logBox.appendChild(line);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  // ---------- LED rendering ----------
+  // delta > 0 = perdendo tempo (mais lento que referência) -> vermelho
+  // delta < 0 = ganhando tempo (mais rápido) -> verde
+  function renderDelta(delta) {
+    currentDelta = delta;
+    const clamped = Math.max(-LED_MAX, Math.min(LED_MAX, delta));
+    const litCount = Math.round(Math.abs(clamped) / LED_STEP); // 0..5
+
+    // reset all to dim
+    leds.forEach(l => {
+      l.el.className = `led dim-${l.color}`;
+    });
+
+    if (Math.abs(delta) < LED_STEP / 2) {
+      // dentro da margem morta: só o amarelo acende
+      leds[5].el.className = 'led on-amber';
+    } else if (delta > 0) {
+      // perdendo tempo -> acende vermelhos, do centro para fora (índice 4 é o mais próximo do centro)
+      for (let i = 0; i < litCount; i++) {
+        leds[4 - i].el.className = 'led on-red';
+      }
+      leds[5].el.className = 'led on-amber';
+    } else {
+      // ganhando tempo -> acende verdes, do centro para fora (índice 6 é o mais próximo do centro)
+      for (let i = 0; i < litCount; i++) {
+        leds[6 + i].el.className = 'led on-green';
+      }
+      leds[5].el.className = 'led on-amber';
+    }
+
+    // readout numérico
+    const sign = delta > 0.005 ? '+' : (delta < -0.005 ? '' : '');
+    deltaReadout.textContent = '';
+    const valSpan = document.createElement('span');
+    valSpan.textContent = `${sign}${delta.toFixed(2)}`;
+    const unitSpan = document.createElement('span');
+    unitSpan.className = 'unit';
+    unitSpan.textContent = 's';
+    deltaReadout.appendChild(valSpan);
+    deltaReadout.appendChild(unitSpan);
+    deltaReadout.className = 'delta-readout ' + (Math.abs(delta) < LED_STEP / 2 ? 'zero' : (delta > 0 ? 'pos' : 'neg'));
+  }
+
+  function clearDelta() {
+    leds.forEach(l => { l.el.className = `led dim-${l.color}`; });
+    deltaReadout.textContent = '--';
+    deltaReadout.className = 'delta-readout zero';
+  }
+
+  // ---------- Sensor permission (iOS 13+ precisa disso; Android não) ----------
+  function needsIOSPermission() {
+    return typeof DeviceMotionEvent !== 'undefined' &&
+           typeof DeviceMotionEvent.requestPermission === 'function';
+  }
+
+  btnPermission.addEventListener('click', async () => {
+    try {
+      if (needsIOSPermission()) {
+        const res = await DeviceMotionEvent.requestPermission();
+        if (res !== 'granted') {
+          gateText.textContent = 'Permissão negada. Ative o acesso a sensores de movimento nas configurações do navegador e recarregue a página.';
+          return;
+        }
+      }
+      // Testa se o evento realmente dispara (Android/Chrome não tem permissão explícita,
+      // mas o navegador pode não suportar rotationRate em HTTP não-seguro)
+      gate.classList.add('hidden');
+      app.classList.remove('hidden');
+      startSensorListener();
+      initBattery();
+    } catch (err) {
+      gateText.textContent = 'Erro ao solicitar permissão: ' + err.message;
+    }
+  });
+
+  // ---------- Sensor capture ----------
+  let latestGyroZ = 0;
+  let gyroAvailable = false;
+
+  function startSensorListener() {
+    if (!('DeviceMotionEvent' in window)) {
+      log('DeviceMotionEvent não suportado neste navegador.');
+      return;
+    }
+    window.addEventListener('devicemotion', (e) => {
+      if (e.rotationRate && e.rotationRate.alpha !== null) {
+        // alpha = rotação em torno do eixo Z (vertical do celular) em graus/s
+        latestGyroZ = e.rotationRate.alpha;
+        gyroAvailable = true;
+      }
+    }, { passive: true });
+
+    setTimeout(() => {
+      if (!gyroAvailable) {
+        log('Aviso: nenhum dado de giroscópio recebido. Verifique se o site está em HTTPS e se o celular tem giroscópio.');
+      } else {
+        log('Giroscópio ativo.');
+      }
+    }, 1000);
+  }
+
+  // ---------- Sampling loop (setInterval, timestamp real via performance.now) ----------
+  let samplingTimer = null;
+  let recordingStartMs = 0;
+
+  function startSampling() {
+    buffer = [];
+    sampleTimestamps = [];
+    recordingStartMs = performance.now();
+    lapStartTime = 0;
+    samplingTimer = setInterval(sampleTick, SAMPLE_INTERVAL_MS);
+  }
+
+  function stopSampling() {
+    if (samplingTimer) clearInterval(samplingTimer);
+    samplingTimer = null;
+  }
+
+  function sampleTick() {
+    const now = performance.now();
+    const t = (now - recordingStartMs) / 1000;
+    buffer.push({ t, gz: latestGyroZ });
+
+    // taxa de amostragem real (janela deslizante de 1s)
+    sampleTimestamps.push(now);
+    while (sampleTimestamps.length && now - sampleTimestamps[0] > 1000) {
+      sampleTimestamps.shift();
+    }
+    sampleRateEl.textContent = `${sampleTimestamps.length} Hz`;
+
+    if (!referenceLocked) {
+      tryFindLap();
+    } else {
+      updateLiveDelta(t);
+    }
+  }
+
+  // ---------- Autocorrelation: acha o período (duração da "volta") ----------
+  function tryFindLap() {
+    if (buffer.length < AUTOCORR_MIN_SAMPLES) return;
+
+    // roda autocorrelação a cada ~1s de novos dados pra não pesar o loop
+    if (buffer.length % 25 !== 0) return;
+
+    const dt = estimateDt();
+    if (!dt) return;
+
+    const minLagSamples = Math.floor(MIN_LAP_SECONDS / dt);
+    const maxLagSamples = Math.min(Math.floor(MAX_LAP_SECONDS / dt), buffer.length - 1);
+    if (maxLagSamples <= minLagSamples) return;
+
+    const series = buffer.map(s => s.gz);
+    const mean = series.reduce((a, b) => a + b, 0) / series.length;
+    const centered = series.map(v => v - mean);
+
+    let bestLag = -1;
+    let bestScore = -Infinity;
+
+    for (let lag = minLagSamples; lag <= maxLagSamples; lag++) {
+      let sum = 0;
+      let count = 0;
+      for (let i = 0; i + lag < centered.length; i++) {
+        sum += centered[i] * centered[i + lag];
+        count++;
+      }
+      if (count < minLagSamples) continue;
+      const score = sum / count;
+      if (score > bestScore) {
+        bestScore = score;
+        bestLag = lag;
+      }
+    }
+
+    // normaliza o score pela variância pra ter um limiar de confiança comparável
+    const variance = centered.reduce((a, b) => a + b * b, 0) / centered.length;
+    const normalizedScore = variance > 0 ? bestScore / variance : 0;
+
+    // limiar de confiança: só trava referência se a autocorrelação for razoavelmente forte
+    const CONFIDENCE_THRESHOLD = 0.25;
+
+    if (bestLag > 0 && normalizedScore > CONFIDENCE_THRESHOLD) {
+      lockReference(bestLag, dt);
+    }
+  }
+
+  function estimateDt() {
+    if (buffer.length < 10) return null;
+    const n = buffer.length;
+    return (buffer[n - 1].t - buffer[0].t) / (n - 1);
+  }
+
+  function lockReference(lagSamples, dt) {
+    refDurationSec = lagSamples * dt;
+    referenceSeries = buffer.slice(buffer.length - lagSamples).map(s => s.gz);
+    referenceLocked = true;
+    lapStartTime = buffer[buffer.length - 1].t;
+    lapCount = 1;
+
+    refDurationEl.textContent = `${refDurationSec.toFixed(1)}s`;
+    lapCountEl.textContent = lapCount;
+    statusText.textContent = 'Referência travada — comparando';
+    statusText.className = 'status locked';
+    log(`Referência encontrada: ${refDurationSec.toFixed(1)}s (ciclo repetido detectado)`);
+  }
+
+  // ---------- Live delta via alinhamento simples (correlação deslizante da janela recente) ----------
+  function updateLiveDelta(t) {
+    const elapsedInLap = t - lapStartTime;
+
+    // fim de volta: quando passamos da duração de referência, tenta re-sincronizar
+    if (elapsedInLap >= refDurationSec) {
+      lapCount++;
+      lapStartTime = t;
+      lapCountEl.textContent = lapCount;
+      log(`Volta ${lapCount} iniciada`);
+      return;
+    }
+
+    // pega a amostra atual do buffer e a amostra correspondente na referência
+    const dt = estimateDt();
+    if (!dt) return;
+    const idxInRef = Math.floor(elapsedInLap / dt);
+    if (idxInRef < 5 || idxInRef >= referenceSeries.length - 5) return;
+
+    // janela recente (últimos ~2s) vs janela correspondente na referência, testando pequenos deslocamentos
+    const windowSamples = Math.min(Math.floor(2 / dt), 50);
+    const recentStart = buffer.length - windowSamples;
+    if (recentStart < 0) return;
+    const recentWindow = buffer.slice(recentStart).map(s => s.gz);
+
+    const searchRangeSamples = Math.floor(1.0 / dt); // busca deslocamento de até ±1s
+    let bestOffset = 0;
+    let bestScore = -Infinity;
+
+    for (let off = -searchRangeSamples; off <= searchRangeSamples; off++) {
+      const refIdx = idxInRef - windowSamples + off;
+      if (refIdx < 0 || refIdx + windowSamples >= referenceSeries.length) continue;
+      let sum = 0;
+      let count = 0;
+      for (let i = 0; i < windowSamples; i++) {
+        const refVal = referenceSeries[refIdx + i];
+        const curVal = recentWindow[i];
+        sum += Math.abs(refVal - curVal);
+        count++;
+      }
+      if (count === 0) continue;
+      const score = -(sum / count); // menor diferença = melhor score
+      if (score > bestScore) {
+        bestScore = score;
+        bestOffset = off;
+      }
+    }
+
+    // offset positivo = a janela recente "parece" com um trecho ANTERIOR da referência
+    // -> estamos atrasados em relação à referência -> delta positivo (perdendo tempo)
+    const delta = bestOffset * dt;
+    renderDelta(delta);
+  }
+
+  // ---------- Battery ----------
+  function initBattery() {
+    if ('getBattery' in navigator) {
+      navigator.getBattery().then(battery => {
+        updateBattery(battery);
+        battery.addEventListener('levelchange', () => updateBattery(battery));
+        battery.addEventListener('chargingchange', () => updateBattery(battery));
+      }).catch(() => {
+        batteryPctEl.textContent = 'n/d';
+      });
+    } else {
+      batteryPctEl.textContent = 'n/d';
+    }
+  }
+
+  function updateBattery(battery) {
+    const pct = Math.round(battery.level * 100);
+    batteryPctEl.textContent = `${pct}%${battery.charging ? ' ⚡' : ''}`;
+    batteryFillEl.style.width = `${pct}%`;
+    batteryFillEl.style.background = pct < 20 ? 'var(--red)' : (pct < 50 ? 'var(--amber)' : 'var(--green)');
+  }
+
+  // ---------- Controls ----------
+  btnStart.addEventListener('click', () => {
+    recording = true;
+    referenceLocked = false;
+    referenceSeries = null;
+    refDurationSec = null;
+    lapCount = 0;
+    clearDelta();
+    refDurationEl.textContent = '--';
+    lapCountEl.textContent = '0';
+    statusText.textContent = 'Gravando — procurando padrão de volta...';
+    statusText.className = 'status recording';
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+    startSampling();
+    log('Gravação iniciada.');
+  });
+
+  btnStop.addEventListener('click', () => {
+    recording = false;
+    stopSampling();
+    statusText.textContent = 'Parado';
+    statusText.className = 'status';
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    log(`Gravação parada. ${buffer.length} amostras capturadas.`);
+  });
+
+  btnReset.addEventListener('click', () => {
+    referenceLocked = false;
+    referenceSeries = null;
+    refDurationSec = null;
+    lapCount = 0;
+    buffer = recording ? [buffer[buffer.length - 1] || { t: 0, gz: 0 }] : [];
+    clearDelta();
+    refDurationEl.textContent = '--';
+    lapCountEl.textContent = '0';
+    if (recording) {
+      statusText.textContent = 'Gravando — procurando padrão de volta...';
+      statusText.className = 'status recording';
+    }
+    log('Referência zerada.');
+  });
+
+  log('App pronto.');
+})();
+</script>
+
+</body>
+</html>
